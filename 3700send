@@ -15,7 +15,7 @@ class Sender:
         self.seq_num = 0 # next seq to send; fix initial number for simplicity
         self.cwnd = 1
         self.in_flight = [] # list of tuples (msg, timeout), keep copies of all data until ACKed
-        self.timeout = 1
+        self.timeout = 1.2
         self.ssthresh = 16
 
         self.dup_ack = 0

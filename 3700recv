@@ -12,6 +12,7 @@ class Receiver:
         self.remote_port = None
         # add for reliable behavior:
         self.next_expected = 0
+        self.recved = dict() # {seq_num: data}
 
     def send(self, message):
         self.socket.sendto(json.dumps(message).encode('utf-8'), (self.remote_host, self.remote_port))
@@ -39,11 +40,16 @@ class Receiver:
         return
 
     def ack_msg(self, msg):
-        if msg["seq_num"] == self.next_expected:
-            self.next_expected += len(msg["data"])
-            # Print out the data to stdout
-            print(msg["data"], end='', flush=True)
-        ack = { "type": "ack", "ack_num": self.next_expected }
+        if msg["seq_num"] >= self.next_expected and msg["seq_num"] not in self.recved:
+            self.recved[msg["seq_num"]] = msg
+
+            while self.next_expected in self.recved:
+                msg = self.recved.pop(self.next_expected)
+                self.next_expected += len(msg["data"])
+                print(msg["data"], end="", flush=True)
+
+        # accumulate ack
+        ack = {"type": "ack", "ack_num": self.next_expected}
         self.send(ack)
 
 if __name__ == "__main__":
