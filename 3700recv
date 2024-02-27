@@ -6,11 +6,12 @@ class Receiver:
     def __init__(self):
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.socket.bind(('0.0.0.0', 0))
-        self.port = self.socket.getsockname()[1]
+        self.port = self.socket.getsockname()[1] # Get the port number we are bound to
         self.log("Bound to port %d" % self.port)
-
         self.remote_host = None
         self.remote_port = None
+        # add for reliable behavior:
+        self.next_expected = 0
 
     def send(self, message):
         self.socket.sendto(json.dumps(message).encode('utf-8'), (self.remote_host, self.remote_port))
@@ -23,7 +24,7 @@ class Receiver:
         while True:
             socks = select.select([self.socket], [], [])[0]
             for conn in socks:
-                data, addr = conn.recvfrom(65535)
+                data, addr = conn.recvfrom(65535) # addr is the sender's address tuple (host, port)
 
                 # Grab the remote host/port if we don't alreadt have it
                 if self.remote_host is None:
@@ -33,14 +34,17 @@ class Receiver:
                 msg = json.loads(data.decode('utf-8'))
                 self.log("Received data message %s" % msg)
 
-                # Print out the data to stdout
-                print(msg["data"], end='', flush=True)
-
                 # Always send back an ack
-                self.send({ "type": "ack" })
-
-
+                self.ack_msg(msg)
         return
+
+    def ack_msg(self, msg):
+        if msg["seq_num"] == self.next_expected:
+            self.next_expected += len(msg["data"])
+            # Print out the data to stdout
+            print(msg["data"], end='', flush=True)
+        ack = { "type": "ack", "ack_num": self.next_expected }
+        self.send(ack)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='receive data')
