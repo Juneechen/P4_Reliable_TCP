@@ -48,7 +48,7 @@ class Receiver:
                 self.next_expected += len(msg["data"])
                 print(msg["data"], end="", flush=True)
 
-        # accumulate ack
+        # accumulative ack
         ack = {"type": "ack", "ack_num": self.next_expected}
         self.send(ack)
 
