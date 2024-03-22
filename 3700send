@@ -1,8 +1,13 @@
 #!/usr/bin/env -S python3 -u
 
 import argparse, socket, time, json, select, struct, sys, math, random
+import hashlib
+import struct
+from json import JSONDecodeError
 
-DATA_SIZE = 1375 # 1500 - 20 (IP header) - 8 (UDP header) - 97 (JSON overhead: metadata we add to the message)
+
+# DATA_SIZE = 1375 # 1500 - 20 (IP header) - 8 (UDP header) - 97 (JSON overhead: metadata we add to the message) 
+DATA_SIZE = 1367 # - 8(checksum)
 class Sender:
     def __init__(self, host, port):
         self.host = host # recv_host
@@ -15,22 +20,24 @@ class Sender:
         self.seq_num = 0 # next seq to send; fix initial number for now for simplicity
         self.cwnd = 1
         self.in_flight = [] # list of tuples (msg, timeout, RT?, sent_time), keep copies of all data until ACKed
-        self.timeout = 1.2
+        self.timeout = 1.4
         self.est_rtt = None
         self.ssthresh = 32
         self.dup_ack = 0
         self.last_ack_seq = 0
         self.done_reading = False
-        # self.last_sent_seq = 0
 
 
     def log(self, message):
         sys.stderr.write(message + "\n")
         sys.stderr.flush() # Flush the buffer to ensure the message is written to stderr
 
-    def send(self, message):
+    def send(self, message: dict):
         # specify (host, port) as UDP socket is connectionless
         self.socket.sendto(json.dumps(message).encode('utf-8'), (self.host, self.remote_port)) 
+    
+    def send_struct(self, packed_struct):
+        self.socket.sendto(packed_struct, (self.host, self.remote_port))
 
     def run(self):
         while True:
@@ -38,17 +45,23 @@ class Sender:
 
             # get list of readable sockets from the tuple (readable, writable, exceptional)
             socks = select.select(sockets, [], [], 0.1)[0]
-            for conn in socks:
+            for conn in socks:   
                 if conn == self.socket: # readable -> there is data ready to be received
                     k, addr = conn.recvfrom(65535)
                     ack = k.decode('utf-8')
                     self.log("Received message '%s'" % ack)
 
-                    # handle ack msg and update cwnd
-                    self.handle_ack(json.loads(ack))
+                    try:
+                        # Attempt to parse the received acknowledgment message
+                        self.handle_ack(json.loads(ack))  # This line calls handle_ack with the decoded acknowledgment message
 
-                    if len(self.in_flight) < self.cwnd:
-                        self.waiting = False
+                        if len(self.in_flight) < self.cwnd:
+                            self.waiting = False
+
+                    except JSONDecodeError as e:
+                        # Handle JSON decoding error
+                        self.log(f"\nError decoding acknowledgment message: {ack}")
+                        self.log(f"Error details: {e}")
 
                 elif conn == sys.stdin:
                     if self.done_reading and len(self.in_flight) == 0:
@@ -60,70 +73,88 @@ class Sender:
                         continue
 
                     msg = { "type": "msg", "data": data }
-                    #TODO: make msg reliable
-                    self.make_reliable(msg, self.seq_num)
+                    # make reliable by adding seq_num and checksum
+                    packed_msg = self.make_reliable(msg)
+                    # self.log("Sending message '%s'" % msg)
 
-                    self.log("Sending message '%s'" % msg)
-                    self.send(msg)
+                    self.send_struct(packed_msg)
 
                     # wait for ack if cwnd is full
                     if len(self.in_flight) >= self.cwnd:
                         self.waiting = True
 
             # handle timeouts and retransmissions
-            self.resend_timeout()          
+            self.resend_timeout()       
 
         return
 
-    def make_reliable(self, msg, seq_num):
-        msg["seq_num"] = seq_num
+    def make_reliable(self, msg):
+        msg["seq_num"] = self.seq_num
+        packed_msg = struct.pack("!I", self.seq_num) + msg["data"].encode('utf-8')
         self.seq_num += len(msg["data"])
-        # keep a copy until ACKed
-        self.in_flight.append((msg, time.time() + self.timeout, False, time.time())) # (msg, timeout, RT?, sent_time)
-        self.last_sent_seq = msg["seq_num"]
 
-        print(f"\n{len(msg['data'])} bytes read from STDIN\n")
+        # pack checksum
+        packed_msg = struct.pack("!32s", hashlib.sha256(packed_msg).digest()) + packed_msg
+
+        # keep a copy until ACKed
+        t = time.time()
+        self.in_flight.append((msg, t + self.timeout, False, t, packed_msg)) # (msg, timeout, RT?, sent_time)
+        self.last_sent_seq = msg["seq_num"]
+        return packed_msg
 
     def update_cwnd_on_ack(self):
         if self.cwnd < self.ssthresh:
             self.cwnd += 1
         else:
             self.cwnd += 1/self.cwnd
-        self.waiting = False
+        # self.waiting = False
 
     def update_cwnd_on_timeout(self):
         self.ssthresh = max(self.cwnd/2, 2)
         self.cwnd = 1
-        self.waiting = True
+        # self.cwnd = self.ssthresh
+        # self.waiting = True
 
     def retransmit(self, i):
-        msg = self.in_flight[i][0]
-        self.log(f"\nResend: {msg}")
+        '''resend the i-th message from in_flight'''
+        # msg = self.in_flight[i][0]
+        # self.log(f"\nResend: {msg}")
         self.log(f"\nTimeout: {self.timeout}")
 
-        self.send(msg)
-        self.in_flight[i] = (self.in_flight[i][0], time.time() + self.timeout, True, time.time())
+        # self.send(msg)
+        self.send_struct(self.in_flight[i][4])
+        t = time.time()
+        self.in_flight[i] = (self.in_flight[i][0], t + self.timeout, True, t, self.in_flight[i][4])
         
 
     def resend_timeout(self):
+        '''resend the first timed out message from in_flight and update cwnd and timeout'''
         for i in range(len(self.in_flight)):
             if self.in_flight[i][1] < time.time(): # timeout < current time
                 self.retransmit(i)
                 self.update_cwnd_on_timeout()
                 break
     
-    def handle_ack(self, ack: dict):
-        '''remove all messages with seq_num <= ack["ack_num"] and update cwnd and timeout'''
-        if ack["ack_num"] == self.last_ack_seq:
+    # def handle_ack(self, ack: dict):
+    def handle_ack(self, ack):
+        '''remove messages with seq_num <= ack["ack_num"] from in_flight, handle duplicate acks, update cwnd and timeout '''
+        ack_num = ack["ack_num"]
+
+        # duplicate ack
+        if ack_num == self.last_ack_seq:
             self.dup_ack += 1
             if self.dup_ack == 3:
-                self.log(f"\nReceived 3 duplicate acks: {ack}")
+                # self.log(f"\nReceived 3 duplicate acks: {ack}")
+                self.log(f"\nReceived 3 duplicate acks: {ack_num}")
                 self.retransmit(0)
                 self.cwnd = self.cwnd/2
                 self.dup_ack = 0
 
-        if ack["ack_num"] > self.last_ack_seq:
-            self.last_ack_seq = ack["ack_num"]
+        # expected ack
+        if ack_num > self.last_ack_seq:
+            self.dup_ack = 0
+            self.last_ack_seq = ack_num
+
             while self.in_flight and self.in_flight[0][0]["seq_num"] < self.last_ack_seq:
                 # update timeout
                 if not self.in_flight[0][2]: # not RT msg
@@ -132,12 +163,14 @@ class Sender:
                 # update cwnd
                 self.update_cwnd_on_ack()
                 self.in_flight.pop(0)
+
     
     def calibrate_rtt(self, sample_rtt):
         if not self.est_rtt:
             self.est_rtt = sample_rtt
         else:
             alpha = 0.875 # old sample weight
+            # alpha = 0.875 # old sample weight
             self.est_rtt = alpha * self.est_rtt + (1 - alpha) * sample_rtt
         self.timeout = self.est_rtt * 2
 
