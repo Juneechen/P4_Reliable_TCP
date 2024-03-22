@@ -2,7 +2,7 @@
 
 Project for CS 5700 Computer Networks by Christo Wilson class taking in Spring 2024.
 
-- COntributors: Ujwal Gupta, Shujun Chen
+- Contributors: Ujwal Gupta, Shujun Chen
 
 # Reliable UDP Communication
 
@@ -11,6 +11,7 @@ This project implements a reliable UDP communication protocol between a sender a
 ## High-Level Approach
 
 - **Sender:**
+
   - Utilizes UDP sockets for communication.
   - Attach checksum to packets.
   - Maintain a `seq_num` and `last_ack_seq` to keep track of packet status.
@@ -22,6 +23,7 @@ This project implements a reliable UDP communication protocol between a sender a
   - Dynamically adjust `cwnd` based on acknowledgments and timeouts, in response to various network enviroments and incidents.
   - Simulate TCP Reno's behavior of fast-retransmission.
   - Handles acknowledgments, timeouts, and retransmissions reliably.
+
 - **Receiver:**
   - Binds to a UDP socket to receive messages.
   - Verifies checksums for received packets to detect corruption.
