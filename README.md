@@ -4,9 +4,9 @@ Project for CS 5700 Computer Networks by Professor Christo Wilson in Spring 2024
 
 - Contributors: Ujwal Gupta, Shujun Chen
 
-# Reliable UDP Communication
+# Reliable Communication
 
-This project implements a reliable UDP communication protocol between a sender and a receiver. The sender sends messages to the receiver, and the receiver acknowledges the receipt of each message. The sender employs congestion control and timeout-based retransmission mechanisms to ensure reliable delivery of messages.
+This project implements a reliable TCP communication over UDP between a sender and a receiver. The sender sends messages to the receiver, and the receiver acknowledges the receipt of each message. The sender employs congestion control and timeout-based retransmission mechanisms to ensure reliable delivery of messages.
 
 ## High-Level Approach
 
