@@ -1,6 +1,6 @@
 # P4_Reliable_TCP
 
-Project for CS 5700 Computer Networks by Christo Wilson class taking in Spring 2024.
+Project for CS 5700 Computer Networks by Professor Christo Wilson in Spring 2024.
 
 - Contributors: Ujwal Gupta, Shujun Chen
 
