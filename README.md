@@ -12,7 +12,7 @@ This project implements a reliable TCP communication over UDP between a sender a
 
 - **Sender:**
 
-  - Utilizes UDP sockets for communication.
+  - Utilize UDP sockets for communication.
   - Attach checksum to packets.
   - Maintain a `seq_num` and `last_ack_seq` to keep track of packet status.
   - Keep a copy of all `in-flight` packets with meta info including sent time, timeout time, re-transmit or not, etc.
